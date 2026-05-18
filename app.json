@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Travel View",
+    "slug": "myphotomap",
+    "scheme": "myphotomap",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pcdreams.myphotosmap",
+      "appleTeamId": "VAZ5V665BS",
+      "appStoreUrl": "https://apps.apple.com/us/app/daily-planner-goal-tracker/id6757503582"
+    },
+    "icon": "./assets/images/icon.png",
+    "android": {
+      "edgeToEdgeEnabled": true,
+      "package": "com.pcdreams.myphotosmap"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0c4a6e",
+          "image": "./assets/images/splash-icon.png",
+          "dark": {
+            "image": "./assets/images/splash-icon-dark.png",
+            "backgroundColor": "#000000"
+          },
+          "imageWidth": 200
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

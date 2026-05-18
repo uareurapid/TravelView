@@ -1,0 +1,263 @@
+import React, { useMemo, useCallback } from 'react';
+import { View, Text, ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
+import { Image } from 'expo-image';
+import { useColorScheme } from '@/lib/useColorScheme';
+import { useQuery } from '@tanstack/react-query';
+import * as Location from 'expo-location';
+import { MapPin } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import usePhotoStore, { PhotoWithUri } from '@/lib/state/photo-store';
+import useAlbumStore from '@/lib/state/album-store';
+import useSettingsStore from '@/lib/state/settings-store';
+import BackgroundLoadingIndicator from '@/components/BackgroundLoadingIndicator';
+import * as Haptics from 'expo-haptics';
+
+async function requestLocation() {
+  const { status } = await Location.requestForegroundPermissionsAsync();
+
+  if (status !== 'granted') {
+    return null;
+  }
+
+  const location = await Location.getCurrentPositionAsync({});
+  return {
+    latitude: location.coords.latitude,
+    longitude: location.coords.longitude,
+  };
+}
+
+const THUMBNAIL_SIZE = 44;
+
+/** Parse location string "lat,lng" to coordinates */
+function parseLocation(location: string): { latitude: number; longitude: number } | null {
+  if (!location) return null;
+  const parts = location.split(',');
+  if (parts.length !== 2) return null;
+  const latitude = parseFloat(parts[0].trim());
+  const longitude = parseFloat(parts[1].trim());
+  if (isNaN(latitude) || isNaN(longitude)) return null;
+  // Validate coordinate ranges
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+  return { latitude, longitude };
+}
+
+/** Photo marker component for performance */
+const PhotoMarker = React.memo(function PhotoMarker({
+  photo,
+  onPress,
+}: {
+  photo: PhotoWithUri;
+  onPress: () => void;
+}) {
+  const coords = parseLocation(photo.location);
+  if (!coords) return null;
+
+  return (
+    <Marker
+      coordinate={coords}
+      onPress={onPress}
+      tracksViewChanges={false}
+    >
+      <Pressable onPress={onPress} style={styles.markerContainer}>
+        <Image
+          source={{ uri: photo.uri }}
+          style={styles.markerImage}
+          contentFit="cover"
+          recyclingKey={photo.id}
+        />
+      </Pressable>
+    </Marker>
+  );
+});
+
+export default function MapScreen() {
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
+  const router = useRouter();
+
+  // Get photos with location from store (includes persisted edits)
+  const photos = usePhotoStore((s) => s.photos);
+  const photoEdits = usePhotoStore((s) => s.photoEdits);
+  const mapMarkerMode = useSettingsStore((s) => s.mapMarkerMode);
+
+  // Get browsed albums and device albums for filtering
+  const browsedAlbumIds = useAlbumStore((s) => s.browsedAlbumIds);
+  const deviceAlbums = useAlbumStore((s) => s.albums);
+  const yearlyAlbums = useAlbumStore((s) => s.yearlyAlbums);
+
+  // Get photo IDs from browsed albums only
+  const browsedPhotoIds = useMemo(() => {
+    if (mapMarkerMode === 'all_albums') {
+      return null; // null means show all photos
+    }
+
+    // Collect photo IDs from all browsed albums
+    const photoIds = new Set<string>();
+
+    browsedAlbumIds.forEach((albumId) => {
+      // Check device albums
+      const deviceAlbum = deviceAlbums.get(albumId);
+      if (deviceAlbum) {
+        deviceAlbum.photoIds.forEach((id) => photoIds.add(id));
+      }
+
+      // Check yearly albums (albumId format is "year-YYYY", title is "YYYY")
+      if (albumId.startsWith('year-')) {
+        const year = albumId.replace('year-', '');
+        const yearAlbum = yearlyAlbums.get(year);
+        if (yearAlbum) {
+          yearAlbum.photoIds.forEach((id) => photoIds.add(id));
+        }
+      }
+    });
+
+    return photoIds;
+  }, [mapMarkerMode, browsedAlbumIds, deviceAlbums, yearlyAlbums]);
+
+  const photosWithLocation = useMemo(() => {
+    const result: PhotoWithUri[] = [];
+    photos.forEach((photo) => {
+      // If in "current_album" mode, only include photos from browsed albums
+      if (browsedPhotoIds !== null && !browsedPhotoIds.has(photo.id)) {
+        return;
+      }
+
+      // Get merged location (persisted edits take precedence)
+      const edits = photoEdits[photo.id];
+      const location = edits?.location || photo.location;
+
+      if (location && parseLocation(location)) {
+        result.push({
+          ...photo,
+          location,
+        });
+      }
+    });
+    return result;
+  }, [photos, photoEdits, browsedPhotoIds]);
+
+  const { data: location, isLoading } = useQuery({
+    queryKey: ['userLocation'],
+    queryFn: requestLocation,
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const handlePhotoPress = useCallback((photo: PhotoWithUri) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push({
+      pathname: '/photo/[id]',
+      params: {
+        id: photo.id,
+        uri: photo.uri,
+      },
+    });
+  }, [router]);
+
+  const initialRegion = {
+    latitude: location?.latitude ?? 37.78825,
+    longitude: location?.longitude ?? -122.4324,
+    latitudeDelta: 0.0922,
+    longitudeDelta: 0.0421,
+  };
+
+  if (isLoading) {
+    return (
+      <View className={`flex-1 items-center justify-center ${isDark ? 'bg-gray-900' : 'bg-white'}`}>
+        <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#2563EB'} />
+        <Text className={`mt-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+          Loading map...
+        </Text>
+      </View>
+    );
+  }
+
+  const photoCount = photosWithLocation.length;
+
+  // Get appropriate message based on mode and photo count
+  const getStatusMessage = () => {
+    if (photoCount > 0) {
+      return `${photoCount} photo${photoCount === 1 ? '' : 's'} on map`;
+    }
+    if (mapMarkerMode === 'all_albums') {
+      return 'Loading photos in background...';
+    }
+    return 'Browse albums to load photos';
+  };
+
+  return (
+    <View className="flex-1">
+      <MapView
+        style={{ flex: 1 }}
+        initialRegion={initialRegion}
+        showsUserLocation
+        showsMyLocationButton
+        userInterfaceStyle={isDark ? 'dark' : 'light'}
+      >
+        {photosWithLocation.map((photo) => (
+          <PhotoMarker
+            key={photo.id}
+            photo={photo}
+            onPress={() => handlePhotoPress(photo)}
+          />
+        ))}
+      </MapView>
+
+      {/* Floating indicator showing photo count */}
+      <View
+        className={`absolute bottom-6 left-4 right-4 rounded-2xl p-4 ${
+          isDark ? 'bg-gray-800/90' : 'bg-white/90'
+        }`}
+        style={styles.floatingCard}
+      >
+        <View className="flex-row items-center">
+          <View
+            className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+              isDark ? 'bg-blue-500/20' : 'bg-blue-100'
+            }`}
+          >
+            <MapPin size={20} color={isDark ? '#60A5FA' : '#2563EB'} />
+          </View>
+          <View className="flex-1">
+            <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+              Photo Locations
+            </Text>
+            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+              {getStatusMessage()}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Background loading indicator - rendered last so it appears on top */}
+      <BackgroundLoadingIndicator />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  markerContainer: {
+    width: THUMBNAIL_SIZE,
+    height: THUMBNAIL_SIZE,
+    borderRadius: THUMBNAIL_SIZE / 2,
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  markerImage: {
+    width: '100%',
+    height: '100%',
+  },
+  floatingCard: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+});
