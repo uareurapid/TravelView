@@ -11,6 +11,16 @@ export interface CustomAlbum {
   photoIds: string[];
 }
 
+function normalizeCustomAlbum(input: Partial<CustomAlbum> & { id: string; title: string }): CustomAlbum {
+  return {
+    id: input.id,
+    title: input.title,
+    createdAt: typeof input.createdAt === 'number' ? input.createdAt : Date.now(),
+    location: typeof input.location === 'string' ? input.location : '',
+    photoIds: Array.isArray(input.photoIds) ? input.photoIds : [],
+  };
+}
+
 interface AlbumStore {
   // Custom albums (user-created, persisted)
   customAlbums: CustomAlbum[];
@@ -77,40 +87,47 @@ const useAlbumStore = create<AlbumStore>()(
         );
       },
       getCustomAlbumById: (id: string) => {
-        return get().customAlbums.find((album) => album.id === id);
+        const album = get().customAlbums.find((item) => item.id === id);
+        return album ? normalizeCustomAlbum(album) : undefined;
       },
       setCustomAlbumLocation: (id: string, location: string) => {
         set((state) => ({
           customAlbums: state.customAlbums.map((album) =>
-            album.id === id ? { ...album, location } : album
+            album.id === id ? { ...normalizeCustomAlbum(album), location } : normalizeCustomAlbum(album)
           ),
         }));
       },
       getCustomAlbumLocation: (id: string) => {
-        return get().customAlbums.find((album) => album.id === id)?.location ?? '';
+        const album = get().customAlbums.find((item) => item.id === id);
+        return album ? normalizeCustomAlbum(album).location : '';
       },
       addPhotosToCustomAlbum: (id: string, photoIds: string[]) => {
         if (photoIds.length === 0) return;
 
         set((state) => ({
           customAlbums: state.customAlbums.map((album) => {
-            if (album.id !== id) return album;
+            const normalizedAlbum = normalizeCustomAlbum(album);
 
-            const mergedIds = [...new Set([...album.photoIds, ...photoIds])];
+            if (normalizedAlbum.id !== id) {
+              return normalizedAlbum;
+            }
+
+            const mergedIds = [...new Set([...normalizedAlbum.photoIds, ...photoIds])];
             return {
-              ...album,
+              ...normalizedAlbum,
               photoIds: mergedIds,
             };
           }),
         }));
       },
       getCustomAlbumPhotoIds: (id: string) => {
-        return get().customAlbums.find((album) => album.id === id)?.photoIds ?? [];
+        const album = get().customAlbums.find((item) => item.id === id);
+        return album ? normalizeCustomAlbum(album).photoIds : [];
       },
       deleteCustomAlbum: (id: string) => {
         const album = get().customAlbums.find((a) => a.id === id);
         if (!album) return null;
-        const albumTitle = album.title;
+        const albumTitle = normalizeCustomAlbum(album).title;
         set({ customAlbums: get().customAlbums.filter((a) => a.id !== id) });
         return albumTitle;
       },
@@ -268,7 +285,41 @@ const useAlbumStore = create<AlbumStore>()(
       name: "album-storage",
       storage: createJSONStorage(() => AsyncStorage),
       // Only persist custom albums, not device albums (those are loaded fresh)
-      partialize: (state) => ({ customAlbums: state.customAlbums }),
+      partialize: (state) => ({
+        customAlbums: state.customAlbums.map((album) => normalizeCustomAlbum(album)),
+      }),
+      merge: (persistedState, currentState) => {
+        const typedPersisted = persistedState as Partial<AlbumStore> | undefined;
+        const persistedCustomAlbums = Array.isArray(typedPersisted?.customAlbums)
+          ? (typedPersisted.customAlbums as unknown[])
+          : [];
+        const normalizedCustomAlbums = persistedCustomAlbums.reduce<CustomAlbum[]>((acc, album) => {
+          if (!album || typeof album !== 'object') {
+            return acc;
+          }
+
+          const candidate = album as Partial<CustomAlbum> & { id?: unknown; title?: unknown };
+          if (typeof candidate.id !== 'string' || typeof candidate.title !== 'string') {
+            return acc;
+          }
+
+          acc.push(
+            normalizeCustomAlbum({
+              ...candidate,
+              id: candidate.id,
+              title: candidate.title,
+            })
+          );
+
+          return acc;
+        }, []);
+
+        return {
+          ...currentState,
+          ...typedPersisted,
+          customAlbums: normalizedCustomAlbums,
+        };
+      },
     }
   )
 );

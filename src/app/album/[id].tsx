@@ -953,7 +953,8 @@ export default function AlbumDetailScreen() {
         quality: 1,
       });
 
-      if (result.canceled || result.assets.length === 0) return;
+      const selectedAssets = result.assets ?? [];
+      if (result.canceled || selectedAssets.length === 0) return;
 
       const newPhotos: PhotoWithUri[] = [];
       const newPhotoIds: string[] = [];
@@ -961,8 +962,8 @@ export default function AlbumDetailScreen() {
       let linkedCount = 0;
       const baseTimestamp = Date.now();
 
-      for (let idx = 0; idx < result.assets.length; idx += 1) {
-        const asset = result.assets[idx];
+      for (let idx = 0; idx < selectedAssets.length; idx += 1) {
+        const asset = selectedAssets[idx];
         const resolvedExistingId = findExistingPhotoId(asset.assetId, asset.uri);
         const photoId = resolvedExistingId ?? asset.assetId ?? `picked-${baseTimestamp}-${idx}`;
         const existing = photosMap.get(photoId);
@@ -1041,9 +1042,10 @@ export default function AlbumDetailScreen() {
         quality: 1,
       });
 
-      if (result.canceled || result.assets.length === 0) return;
+      const capturedAssets = result.assets ?? [];
+      if (result.canceled || capturedAssets.length === 0) return;
 
-      const captured = result.assets[0];
+      const captured = capturedAssets[0];
 
       const mediaPermission = await MediaLibrary.requestPermissionsAsync();
       if (mediaPermission.status !== 'granted') {
