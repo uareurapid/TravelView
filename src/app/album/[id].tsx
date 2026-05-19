@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react'
 import { View, Text, Pressable, ActivityIndicator, Dimensions, StyleSheet, Modal, TextInput } from 'react-native';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -37,6 +37,36 @@ interface PhotoPage {
   photos: Photo[];
   nextCursor: string | undefined;
   hasMore: boolean;
+}
+
+async function fetchPhotosByIds(photoIds: string[]): Promise<Photo[]> {
+  const results = await Promise.all(
+    photoIds.map(async (photoId) => {
+      try {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(photoId);
+        if (!assetInfo || !assetInfo.uri) return null;
+
+        return {
+          id: assetInfo.id,
+          uri: assetInfo.uri,
+          width: assetInfo.width ?? 0,
+          height: assetInfo.height ?? 0,
+          filename: assetInfo.filename ?? assetInfo.id,
+          creationTime: assetInfo.creationTime ?? Date.now(),
+          location: assetInfo.location
+            ? {
+                latitude: assetInfo.location.latitude,
+                longitude: assetInfo.location.longitude,
+              }
+            : undefined,
+        } as Photo;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return results.filter((item): item is Photo => item !== null);
 }
 
 async function fetchAlbumPhotos(albumId: string, albumTitle: string, cursor?: string): Promise<PhotoPage> {
@@ -523,9 +553,12 @@ export default function AlbumDetailScreen() {
   const addPhotoToYearlyAlbum = useAlbumStore((s) => s.addPhotoToYearlyAlbum);
   const setCustomAlbumLocation = useAlbumStore((s) => s.setCustomAlbumLocation);
   const getCustomAlbumById = useAlbumStore((s) => s.getCustomAlbumById);
+  const addPhotosToCustomAlbum = useAlbumStore((s) => s.addPhotosToCustomAlbum);
+  const getCustomAlbumPhotoIds = useAlbumStore((s) => s.getCustomAlbumPhotoIds);
 
   const customAlbum = id ? getCustomAlbumById(id) : undefined;
   const customAlbumLocation = customAlbum?.location ?? '';
+  const customAlbumPhotoIds = id ? getCustomAlbumPhotoIds(id) : [];
 
   const showFeedback = useCallback((message: string, type: 'success' | 'error' = 'success') => {
     setFeedback({ message, type });
@@ -551,9 +584,10 @@ export default function AlbumDetailScreen() {
   const storePhotos = useMemo((): Photo[] => {
     if (isCustomAlbum && title) {
       const result: Photo[] = [];
+      const customAlbumPhotoIdSet = new Set(customAlbumPhotoIds);
 
       photosMap.forEach((photo) => {
-        if (!photo.albums.includes(title)) return;
+        if (!customAlbumPhotoIdSet.has(photo.id)) return;
 
         let location: { latitude: number; longitude: number } | undefined;
         if (photo.location) {
@@ -652,7 +686,42 @@ export default function AlbumDetailScreen() {
     }
 
     return [];
-  }, [isCustomAlbum, isYearlyAlbum, isPreloaded, title, id, yearlyAlbums, deviceAlbums, photosMap]);
+  }, [isCustomAlbum, isYearlyAlbum, isPreloaded, title, id, customAlbumPhotoIds, yearlyAlbums, deviceAlbums, photosMap]);
+
+  const missingCustomPhotoIds = useMemo(() => {
+    if (!isCustomAlbum) return [] as string[];
+    return customAlbumPhotoIds.filter((photoId) => !photosMap.has(photoId));
+  }, [isCustomAlbum, customAlbumPhotoIds, photosMap]);
+
+  const { data: fetchedCustomPhotos, isLoading: isLoadingCustomPhotos } = useQuery({
+    queryKey: ['custom-album-photos', id, missingCustomPhotoIds.join(',')],
+    queryFn: () => fetchPhotosByIds(missingCustomPhotoIds),
+    enabled: isCustomAlbum && missingCustomPhotoIds.length > 0,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  useEffect(() => {
+    if (!isCustomAlbum || !title) return;
+    if (!fetchedCustomPhotos || fetchedCustomPhotos.length === 0) return;
+
+    const mapped: PhotoWithUri[] = fetchedCustomPhotos.map((photo) => {
+      const year = new Date(photo.creationTime).getFullYear().toString();
+      const locationString = photo.location
+        ? `${photo.location.latitude},${photo.location.longitude}`
+        : '';
+
+      return {
+        id: photo.id,
+        title: photo.filename || photo.id,
+        date: new Date(photo.creationTime),
+        location: locationString,
+        albums: [title, year],
+        uri: photo.uri,
+      };
+    });
+
+    addPhotos(mapped);
+  }, [isCustomAlbum, title, fetchedCustomPhotos, addPhotos]);
 
   // Only use infinite query if album is NOT pre-loaded and NOT a yearly album
   const shouldFetchFromDevice = !isCustomAlbum && !isYearlyAlbum && !isPreloaded;
@@ -674,12 +743,23 @@ export default function AlbumDetailScreen() {
 
   // Combine store photos with fetched photos
   const photos = useMemo(() => {
+    if (isCustomAlbum) {
+      const merged = [...storePhotos];
+
+      (fetchedCustomPhotos ?? []).forEach((photo) => {
+        if (merged.some((item) => item.id === photo.id)) return;
+        merged.push(photo);
+      });
+
+      return merged.sort((a, b) => b.creationTime - a.creationTime);
+    }
+
     // If we have store photos (yearly album or pre-loaded), use them
     if (storePhotos.length > 0) return storePhotos;
     // Otherwise use fetched data
     if (!data?.pages) return [];
     return data.pages.flatMap((page) => page.photos);
-  }, [storePhotos, data?.pages]);
+  }, [isCustomAlbum, storePhotos, fetchedCustomPhotos, data?.pages]);
 
   // Track if we've processed photos for this album to avoid infinite loops
   const processedPhotosRef = useRef<Set<string>>(new Set());
@@ -831,9 +911,9 @@ export default function AlbumDetailScreen() {
       const normalized = await normalizeLocationValue(value);
       setCustomAlbumLocation(id, normalized);
 
-      const albumPhotoIds = photos
-        .map((photo) => photo.id)
-        .filter((photoId) => photoId.length > 0);
+      const albumPhotoIds = isCustomAlbum
+        ? customAlbumPhotoIds
+        : photos.map((photo) => photo.id).filter((photoId) => photoId.length > 0);
 
       updatePhotosLocation(albumPhotoIds, normalized);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -850,7 +930,7 @@ export default function AlbumDetailScreen() {
     } finally {
       setIsSavingLocation(false);
     }
-  }, [id, normalizeLocationValue, setCustomAlbumLocation, photos, updatePhotosLocation, showFeedback]);
+  }, [id, isCustomAlbum, customAlbumPhotoIds, normalizeLocationValue, setCustomAlbumLocation, photos, updatePhotosLocation, showFeedback]);
 
   const handleAddFromGallery = useCallback(async () => {
     if (!id || !title) return;
@@ -867,7 +947,7 @@ export default function AlbumDetailScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsMultipleSelection: true,
         selectionLimit: 30,
         quality: 1,
@@ -923,6 +1003,7 @@ export default function AlbumDetailScreen() {
 
       if (newPhotoIds.length > 0) {
         addPhotosToAlbum(id, newPhotoIds);
+        addPhotosToCustomAlbum(id, newPhotoIds);
       }
 
       if (linkedCount > 0) {
@@ -932,13 +1013,14 @@ export default function AlbumDetailScreen() {
           'success'
         );
       }
-    } catch {
+    } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showFeedback('Could not add photos from gallery. Please try again.', 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Please try again.';
+      showFeedback(`Could not add photos from gallery. ${errorMessage}`, 'error');
     } finally {
       setIsImporting(false);
     }
-  }, [id, title, customAlbumLocation, findExistingPhotoId, resolveCreationDate, photosMap, addAlbumToPhoto, updatePhotoEdits, getOrCreateYearlyAlbum, addPhotoToYearlyAlbum, addPhotos, addPhotosToAlbum, showFeedback]);
+  }, [id, title, customAlbumLocation, findExistingPhotoId, resolveCreationDate, photosMap, addAlbumToPhoto, updatePhotoEdits, getOrCreateYearlyAlbum, addPhotoToYearlyAlbum, addPhotos, addPhotosToAlbum, addPhotosToCustomAlbum, showFeedback]);
 
   const handleTakePhoto = useCallback(async () => {
     if (!id || !title) return;
@@ -955,7 +1037,7 @@ export default function AlbumDetailScreen() {
       }
 
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 1,
       });
 
@@ -970,15 +1052,25 @@ export default function AlbumDetailScreen() {
         return;
       }
 
-      const savedAsset = await MediaLibrary.createAssetAsync(captured.uri);
-      const photoId = savedAsset.id;
-      const resolvedExistingId = findExistingPhotoId(photoId, savedAsset.uri);
+      let savedAssetUri = captured.uri;
+      let photoId = `captured-${Date.now()}`;
+
+      try {
+        const savedAsset = await MediaLibrary.createAssetAsync(captured.uri);
+        savedAssetUri = savedAsset.uri ?? captured.uri;
+        photoId = savedAsset.id;
+      } catch {
+        // Fall back to the captured file URI so the album action still succeeds.
+      }
+
+      const resolvedExistingId = findExistingPhotoId(photoId, savedAssetUri);
       const existing = resolvedExistingId ? photosMap.get(resolvedExistingId) : photosMap.get(photoId);
       const idToUse = resolvedExistingId ?? photoId;
 
       if (existing) {
         addAlbumToPhoto(idToUse, title);
         addPhotosToAlbum(id, [idToUse]);
+        addPhotosToCustomAlbum(id, [idToUse]);
         if (customAlbumLocation) {
           updatePhotoEdits(idToUse, { location: customAlbumLocation });
         }
@@ -997,23 +1089,25 @@ export default function AlbumDetailScreen() {
         date: creationDate,
         location: customAlbumLocation || '',
         albums: uniqueAlbums,
-        uri: savedAsset.uri,
+        uri: savedAssetUri,
       };
 
       addPhotos([newPhoto]);
       addPhotosToAlbum(id, [photoId]);
+      addPhotosToCustomAlbum(id, [photoId]);
       getOrCreateYearlyAlbum(year);
       addPhotoToYearlyAlbum(year, photoId);
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       showFeedback('Photo captured and added to this album.', 'success');
-    } catch {
+    } catch (error) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      showFeedback('Could not capture photo. Please try again.', 'error');
+      const errorMessage = error instanceof Error ? error.message : 'Please try again.';
+      showFeedback(`Could not capture photo. ${errorMessage}`, 'error');
     } finally {
       setIsImporting(false);
     }
-  }, [id, title, customAlbumLocation, photosMap, findExistingPhotoId, resolveCreationDate, addAlbumToPhoto, addPhotosToAlbum, updatePhotoEdits, addPhotos, getOrCreateYearlyAlbum, addPhotoToYearlyAlbum, showFeedback]);
+  }, [id, title, customAlbumLocation, photosMap, findExistingPhotoId, resolveCreationDate, addAlbumToPhoto, addPhotosToAlbum, addPhotosToCustomAlbum, updatePhotoEdits, addPhotos, getOrCreateYearlyAlbum, addPhotoToYearlyAlbum, showFeedback]);
 
   const handleDeleteAlbum = useCallback(() => {
     if (!id || !title) return;
@@ -1098,7 +1192,7 @@ export default function AlbumDetailScreen() {
           ]}
         />
 
-        {isLoading && !isYearlyAlbum && !isPreloaded ? (
+        {(isLoading && !isYearlyAlbum && !isPreloaded) || (isCustomAlbum && isLoadingCustomPhotos && photos.length === 0) ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator size="large" color={isDark ? '#60A5FA' : '#2563EB'} />
             <Text className={`mt-4 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>

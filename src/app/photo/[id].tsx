@@ -14,7 +14,7 @@ import {
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useColorScheme } from '@/lib/useColorScheme';
-import { X, Edit3, MapPin, Check, Navigation, ChevronLeft, ChevronRight } from 'lucide-react-native';
+import { X, Edit3, Share2, MapPin, Check, Navigation, ChevronLeft, ChevronRight, Calendar } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   FadeIn,
@@ -28,6 +28,7 @@ import Animated, {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
 import usePhotoStore from '@/lib/state/photo-store';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -38,13 +39,53 @@ interface LocationSuggestion {
   coordinates?: string;
 }
 
+function formatLocationForDisplay(location?: string): string {
+  if (!location) return '';
+
+  const coordsMatch = location.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!coordsMatch) {
+    return location;
+  }
+
+  const lat = Number.parseFloat(coordsMatch[1]);
+  const lng = Number.parseFloat(coordsMatch[2]);
+
+  if (
+    Number.isNaN(lat)
+    || Number.isNaN(lng)
+    || lat < -90
+    || lat > 90
+    || lng < -180
+    || lng > 180
+  ) {
+    return location;
+  }
+
+  return `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+}
+
+function formatPhotoDateForDisplay(dateValue: Date | string | number | undefined): string {
+  if (!dateValue) return '';
+
+  const parsedDate = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return '';
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(parsedDate);
+}
+
 export default function PhotoDetailScreen() {
-  const { id, uri, photoIndex, photoIds, photoUris } = useLocalSearchParams<{
+  const { id, uri, photoIndex, photoIds, photoUris, showAlbumNavHint } = useLocalSearchParams<{
     id: string;
     uri: string;
     photoIndex?: string;
     photoIds?: string;
     photoUris?: string;
+    showAlbumNavHint?: string;
   }>();
   const router = useRouter();
   const colorScheme = useColorScheme();
@@ -69,12 +110,28 @@ export default function PhotoDetailScreen() {
   }, [photoUris]);
 
   const hasAlbumNavigation = albumPhotoIds.length > 1;
+  const [showMapNavToast, setShowMapNavToast] = useState<boolean>(false);
 
   // Current photo index state
   const [currentIndex, setCurrentIndex] = useState(() => {
     const idx = photoIndex ? parseInt(photoIndex, 10) : 0;
     return isNaN(idx) ? 0 : idx;
   });
+
+  useEffect(() => {
+    if (showAlbumNavHint !== '1' || !hasAlbumNavigation) {
+      return;
+    }
+
+    setShowMapNavToast(true);
+    const timer = setTimeout(() => {
+      setShowMapNavToast(false);
+    }, 2500);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [showAlbumNavHint, hasAlbumNavigation]);
 
   // Current photo data
   const currentPhotoId = hasAlbumNavigation ? albumPhotoIds[currentIndex] : id;
@@ -84,6 +141,8 @@ export default function PhotoDetailScreen() {
   const getPhoto = usePhotoStore((s) => s.getPhoto);
   const updatePhotoEdits = usePhotoStore((s) => s.updatePhotoEdits);
   const photo = currentPhotoId ? getPhoto(currentPhotoId) : undefined;
+  const displayLocation = useMemo(() => formatLocationForDisplay(photo?.location), [photo?.location]);
+  const displayDate = useMemo(() => formatPhotoDateForDisplay(photo?.date), [photo?.date]);
 
   // Animation values for scale/fade effect
   const opacity = useSharedValue(1);
@@ -184,6 +243,23 @@ export default function PhotoDetailScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setIsEditing(true);
   };
+
+  const handleShare = useCallback(async () => {
+    if (!currentPhotoUri) return;
+
+    try {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        return;
+      }
+
+      await Sharing.shareAsync(currentPhotoUri, {
+        dialogTitle: photo?.title ? `Share ${photo.title}` : 'Share photo',
+      });
+    } catch (error) {
+      console.log('Share error:', error);
+    }
+  }, [currentPhotoUri, photo?.title]);
 
   const handleSaveEdits = () => {
     if (!currentPhotoId) return;
@@ -354,6 +430,17 @@ export default function PhotoDetailScreen() {
             )}
           </Pressable>
 
+          {!isEditing && (
+            <Pressable
+              onPress={handleShare}
+              style={styles.headerButton}
+              className="active:opacity-70"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Share2 size={20} color="#FFFFFF" />
+            </Pressable>
+          )}
+
           {hasAlbumNavigation && !isEditing && (
             <View style={styles.photoCounter}>
               <Text style={styles.photoCounterText}>
@@ -371,6 +458,16 @@ export default function PhotoDetailScreen() {
             <X size={24} color="#FFFFFF" />
           </Pressable>
         </Animated.View>
+
+        {showMapNavToast && !isEditing && (
+          <Animated.View
+            entering={FadeIn.delay(120).duration(220)}
+            exiting={FadeOut.duration(220)}
+            style={[styles.mapNavToast, { top: insets.top + 64 }]}
+          >
+            <Text style={styles.mapNavToastText}>Press the navigation arrows to see more</Text>
+          </Animated.View>
+        )}
 
         {/* Photo with swipe gesture */}
         <GestureDetector gesture={panGesture}>
@@ -490,7 +587,7 @@ export default function PhotoDetailScreen() {
         )}
 
         {/* Photo info display (when not editing) */}
-        {!isEditing && photo && (photo.title || photo.location) && (
+        {!isEditing && photo && (photo.title || displayLocation || displayDate) && (
           <Animated.View
             entering={FadeIn.delay(300).duration(300)}
             style={[styles.infoPanel, { bottom: insets.bottom + 16 }]}
@@ -500,11 +597,19 @@ export default function PhotoDetailScreen() {
                 {photo.title}
               </Text>
             )}
-            {photo.location && (
+            {displayLocation && (
               <View style={styles.infoLocationRow}>
                 <MapPin size={14} color="#9CA3AF" />
                 <Text style={styles.infoLocation} numberOfLines={1}>
-                  {photo.location}
+                  {displayLocation}
+                </Text>
+              </View>
+            )}
+            {displayDate && (
+              <View style={styles.infoDateRow}>
+                <Calendar size={14} color="#9CA3AF" />
+                <Text style={styles.infoDate} numberOfLines={1}>
+                  {displayDate}
                 </Text>
               </View>
             )}
@@ -513,7 +618,7 @@ export default function PhotoDetailScreen() {
 
         {/* Swipe hint */}
         {hasAlbumNavigation && !isEditing && (
-          <View style={[styles.swipeHint, { bottom: insets.bottom + (photo?.title || photo?.location ? 90 : 20) }]}>
+          <View style={[styles.swipeHint, { bottom: insets.bottom + (photo?.title || displayLocation || displayDate ? 90 : 20) }]}>
             <Text style={styles.swipeHintText}>Swipe to navigate</Text>
           </View>
         )}
@@ -539,6 +644,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     zIndex: 10,
+  },
+  mapNavToast: {
+    position: 'absolute',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(17, 24, 39, 0.92)',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    zIndex: 9,
+  },
+  mapNavToastText: {
+    color: '#F3F4F6',
+    fontSize: 12,
+    fontWeight: '500',
   },
   headerButton: {
     width: 40,
@@ -716,6 +835,17 @@ const styles = StyleSheet.create({
   infoLocation: {
     color: '#9CA3AF',
     fontSize: 14,
+    flex: 1,
+  },
+  infoDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  infoDate: {
+    color: '#9CA3AF',
+    fontSize: 13,
     flex: 1,
   },
 });

@@ -403,15 +403,21 @@ export default function AlbumsScreen() {
 
   // Combine device albums with custom albums
   const customAlbumsFormatted: Album[] = customAlbums.map((album) => {
-    const albumPhotos = Array.from(photosMap.values())
-      .filter((photo) => photo.albums.includes(album.title))
-      .sort((a, b) => b.date.getTime() - a.date.getTime());
+    const persistedPhotoIds = album.photoIds ?? [];
+    const firstPersistedPhotoId = persistedPhotoIds[0];
+    const thumbnailFromStore = firstPersistedPhotoId ? photosMap.get(firstPersistedPhotoId)?.uri ?? null : null;
+
+    const albumPhotos = persistedPhotoIds.length > 0
+      ? persistedPhotoIds
+      : Array.from(photosMap.values())
+          .filter((photo) => photo.albums.includes(album.title))
+          .map((photo) => photo.id);
 
     return {
       id: album.id,
       title: album.title,
       assetCount: albumPhotos.length,
-      thumbnail: albumPhotos[0]?.uri ?? null,
+      thumbnail: thumbnailFromStore,
       isCustom: true,
     };
   });

@@ -8,6 +8,7 @@ export interface CustomAlbum {
   title: string;
   createdAt: number;
   location: string;
+  photoIds: string[];
 }
 
 interface AlbumStore {
@@ -18,6 +19,8 @@ interface AlbumStore {
   getCustomAlbumById: (id: string) => CustomAlbum | undefined;
   setCustomAlbumLocation: (id: string, location: string) => void;
   getCustomAlbumLocation: (id: string) => string;
+  addPhotosToCustomAlbum: (id: string, photoIds: string[]) => void;
+  getCustomAlbumPhotoIds: (id: string) => string[];
   hasAlbumWithTitle: (title: string) => boolean;
   showCreateModal: boolean;
   setShowCreateModal: (show: boolean) => void;
@@ -63,6 +66,7 @@ const useAlbumStore = create<AlbumStore>()(
           title,
           createdAt: Date.now(),
           location: '',
+          photoIds: [],
         };
         set({ customAlbums: [...get().customAlbums, newAlbum] });
         return newAlbum;
@@ -84,6 +88,24 @@ const useAlbumStore = create<AlbumStore>()(
       },
       getCustomAlbumLocation: (id: string) => {
         return get().customAlbums.find((album) => album.id === id)?.location ?? '';
+      },
+      addPhotosToCustomAlbum: (id: string, photoIds: string[]) => {
+        if (photoIds.length === 0) return;
+
+        set((state) => ({
+          customAlbums: state.customAlbums.map((album) => {
+            if (album.id !== id) return album;
+
+            const mergedIds = [...new Set([...album.photoIds, ...photoIds])];
+            return {
+              ...album,
+              photoIds: mergedIds,
+            };
+          }),
+        }));
+      },
+      getCustomAlbumPhotoIds: (id: string) => {
+        return get().customAlbums.find((album) => album.id === id)?.photoIds ?? [];
       },
       deleteCustomAlbum: (id: string) => {
         const album = get().customAlbums.find((a) => a.id === id);
