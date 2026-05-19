@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Dimensions, Modal, TextInput, Keyboard } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Dimensions, Modal, TextInput, Keyboard, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -123,6 +123,10 @@ function AlbumCard({ album, isDark, onPress }: { album: Album; isDark: boolean; 
 }
 
 function PermissionDenied({ isDark }: { isDark: boolean }) {
+  const handleOpenSettings = () => {
+    Linking.openSettings();
+  };
+
   return (
     <View className="flex-1 items-center justify-center px-8">
       <View
@@ -142,8 +146,19 @@ function PermissionDenied({ isDark }: { isDark: boolean }) {
       <Text
         className={`text-center ${isDark ? 'text-gray-400' : 'text-gray-500'}`}
       >
-        Please grant access to your photos in Settings to view your albums.
+        Photo access is off. Open Settings to allow access and continue.
       </Text>
+
+      <Pressable
+        onPress={handleOpenSettings}
+        className={`mt-6 rounded-xl px-5 py-3 active:opacity-80 ${
+          isDark ? 'bg-blue-500/20' : 'bg-blue-100'
+        }`}
+      >
+        <Text className={`font-semibold ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
+          Open Settings
+        </Text>
+      </Pressable>
     </View>
   );
 }

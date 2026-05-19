@@ -14,24 +14,56 @@ interface Props {
   onComplete: () => void;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error('Permission request timed out'));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      })
+      .catch((error: unknown) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      });
+  });
+}
+
 export function PermissionOnboarding({ onComplete }: Props) {
   const [isRequesting, setIsRequesting] = useState(false);
+
+  const completeOnboarding = async () => {
+    try {
+      await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
+    } catch (error: unknown) {
+      console.warn('Failed to persist onboarding completion:', error);
+    }
+
+    onComplete();
+  };
 
   const handleGrantAccess = async () => {
     setIsRequesting(true);
 
     try {
-      await MediaLibrary.requestPermissionsAsync();
-      await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
-      onComplete();
-    } catch {
+      const currentPermission = await withTimeout(MediaLibrary.getPermissionsAsync(), 5000);
+
+      if (currentPermission.status !== 'granted' && currentPermission.canAskAgain) {
+        await withTimeout(MediaLibrary.requestPermissionsAsync(), 10000);
+      }
+    } catch (error: unknown) {
+      console.warn('Photo permission request failed:', error);
+    } finally {
       setIsRequesting(false);
+      await completeOnboarding();
     }
   };
 
   const handleSkip = async () => {
-    await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
-    onComplete();
+    await completeOnboarding();
   };
 
   return (

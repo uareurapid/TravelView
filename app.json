@@ -21,6 +21,13 @@
     "plugins": [
       "expo-router",
       [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to display albums and map locations",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos"
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#0c4a6e",
