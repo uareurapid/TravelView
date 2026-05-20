@@ -2,6 +2,7 @@ import * as MediaLibrary from 'expo-media-library';
 import useAlbumStore from '@/lib/state/album-store';
 import usePhotoStore, { PhotoWithUri } from '@/lib/state/photo-store';
 import { Album } from '@/lib/models/album';
+import { loadCache, saveCache, deserializeCachePhotos, CacheData } from '@/lib/services/photo-cache';
 
 const PAGE_SIZE = 50;
 
@@ -18,6 +19,8 @@ interface AlbumInfo {
 class BackgroundPhotoLoader {
   private isRunning = false;
   private abortController: AbortController | null = null;
+  /** Asset counts per album at the time the cache was last saved — used for change detection */
+  private cachedAlbumAssetCounts: Record<string, number> = {};
 
   /**
    * Start background loading of all album photos
@@ -41,7 +44,10 @@ class BackgroundPhotoLoader {
       getOrCreateYearlyAlbum(currentYear);
       console.log(`[BackgroundLoader] Created yearly album for ${currentYear}`);
 
-      // Step 2: Get all device albums
+      // Step 2: Hydrate stores from disk cache so photos appear immediately
+      await this.hydrateFromCache();
+
+      // Step 3: Get all device albums
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
         console.log('[BackgroundLoader] Permission denied');
@@ -63,17 +69,41 @@ class BackgroundPhotoLoader {
 
       console.log(`[BackgroundLoader] Found ${albumsWithPhotos.length} albums with photos`);
 
-      // Step 3: Load photos from each album in sequence (to avoid overwhelming the system)
+      // Step 4: Load only albums that are new or have changed since last cache
+      let anyAlbumProcessed = false;
       for (const album of albumsWithPhotos) {
         if (this.abortController?.signal.aborted) {
           console.log('[BackgroundLoader] Aborted');
           break;
         }
 
+        const { isAlbumLoaded, resetAlbumLoaded } = useAlbumStore.getState();
+        const cachedCount = this.cachedAlbumAssetCounts[album.id];
+
+        if (isAlbumLoaded(album.id) && cachedCount === album.assetCount) {
+          // Album unchanged since last cache — skip entirely
+          continue;
+        }
+
+        if (isAlbumLoaded(album.id)) {
+          // Album changed (photos added or removed) — reset so it gets re-processed
+          console.log(`[BackgroundLoader] Album "${album.title}" changed (${cachedCount} -> ${album.assetCount}), re-loading`);
+          resetAlbumLoaded(album.id);
+        }
+
         await this.loadAlbumPhotos(album);
+        this.cachedAlbumAssetCounts[album.id] = album.assetCount;
+        anyAlbumProcessed = true;
 
         // Small delay between albums to keep UI responsive
         await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      // Step 5: Save updated cache to disk if anything changed
+      if (anyAlbumProcessed) {
+        const { photos } = usePhotoStore.getState();
+        const { albums, yearlyAlbums, loadedAlbumIds } = useAlbumStore.getState();
+        await saveCache(photos, albums, yearlyAlbums, loadedAlbumIds, this.cachedAlbumAssetCounts);
       }
 
       // Mark loading as complete
@@ -87,6 +117,51 @@ class BackgroundPhotoLoader {
       this.isRunning = false;
       this.abortController = null;
     }
+  }
+
+  /**
+   * Load cached photo/album data from disk and hydrate the Zustand stores.
+   * This makes photos available immediately on startup before the background
+   * loader finishes its diff check.
+   */
+  private async hydrateFromCache(): Promise<void> {
+    const cacheData: CacheData | null = await loadCache();
+    if (!cacheData) return;
+
+    const { addPhotos } = usePhotoStore.getState();
+    const { addAlbum, addPhotosToAlbum, getOrCreateYearlyAlbum, addPhotosToYearlyAlbum, markAlbumAsLoaded } =
+      useAlbumStore.getState();
+
+    // Hydrate photo store
+    const photos = deserializeCachePhotos(cacheData);
+    if (photos.length > 0) {
+      addPhotos(photos);
+    }
+
+    // Hydrate device album store
+    Object.entries(cacheData.albumPhotoIds).forEach(([albumId, photoIds]) => {
+      const title = cacheData.albumTitles[albumId] ?? albumId;
+      addAlbum({ id: albumId, title, location: '', photoIds: [] });
+      if (photoIds.length > 0) {
+        addPhotosToAlbum(albumId, photoIds);
+      }
+    });
+
+    // Hydrate yearly album store
+    Object.entries(cacheData.yearlyAlbumPhotoIds).forEach(([year, photoIds]) => {
+      getOrCreateYearlyAlbum(year);
+      if (photoIds.length > 0) {
+        addPhotosToYearlyAlbum(year, photoIds);
+      }
+    });
+
+    // Restore which albums were already fully processed
+    cacheData.loadedAlbumIds.forEach((albumId) => markAlbumAsLoaded(albumId));
+
+    // Keep cached asset counts for diff detection in the album loop
+    this.cachedAlbumAssetCounts = cacheData.albumAssetCounts;
+
+    console.log(`[BackgroundLoader] Hydrated from cache: ${photos.length} photos, ${cacheData.loadedAlbumIds.length} loaded albums`);
   }
 
   /**

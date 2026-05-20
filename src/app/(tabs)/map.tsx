@@ -1,17 +1,20 @@
-import React, { useMemo, useCallback } from 'react';
-import { View, Text, ActivityIndicator, Pressable, StyleSheet } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import React, { useMemo, useCallback, useRef, useState } from 'react';
+import { View, Text, ActivityIndicator, Pressable, StyleSheet, Alert, Dimensions } from 'react-native';
+import MapView, { Marker, Region } from 'react-native-maps';
 import { Image } from 'expo-image';
 import { useColorScheme } from '@/lib/useColorScheme';
 import { useQuery } from '@tanstack/react-query';
 import * as Location from 'expo-location';
-import { MapPin } from 'lucide-react-native';
+import { MapPin, Share2 } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import usePhotoStore, { PhotoWithUri } from '@/lib/state/photo-store';
 import useAlbumStore from '@/lib/state/album-store';
 import useSettingsStore from '@/lib/state/settings-store';
+import usePurchasesStore from '@/lib/state/purchases-store';
 import BackgroundLoadingIndicator from '@/components/BackgroundLoadingIndicator';
 import * as Haptics from 'expo-haptics';
+import * as Sharing from 'expo-sharing';
+import { requestAppReview } from '@/lib/requestReview';
 
 async function requestLocation() {
   const { status } = await Location.requestForegroundPermissionsAsync();
@@ -83,7 +86,7 @@ const PhotoMarker = React.memo(function PhotoMarker({
       anchor={{ x: 0.5, y: 1 }}
       tracksViewChanges={false}
     >
-      <Pressable onPress={onPress} style={styles.markerPressable}>
+      <View style={styles.markerPressable}>
         <View style={styles.markerHead}>
           <Image
             source={{ uri: photo.uri }}
@@ -94,7 +97,7 @@ const PhotoMarker = React.memo(function PhotoMarker({
         </View>
         <View style={styles.markerStem} />
         <View style={styles.markerTip} />
-      </Pressable>
+      </View>
     </Marker>
   );
 });
@@ -103,6 +106,45 @@ export default function MapScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
+  const mapRef = useRef<MapView>(null);
+  const currentRegionRef = useRef<Region | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const isPremium = usePurchasesStore((s) => s.isPremium);
+
+  const handleExport = useCallback(async () => {
+    if (!isPremium) {
+      router.push('/paywall');
+      return;
+    }
+    if (!mapRef.current) return;
+    try {
+      if(isExporting) return; // Prevent multiple taps
+      setIsExporting(true);
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      // Give the map an extra moment to finish rendering any pending tiles
+      const { width: snapW, height: snapH } = Dimensions.get('window');
+      const uri = await mapRef.current.takeSnapshot({
+        width: snapW,
+        height: snapH,
+        region: currentRegionRef.current ?? undefined,
+        format: 'jpg',
+        quality: 0.9,
+        result: 'file',
+      });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'image/jpeg',
+          dialogTitle: 'Share your travel map',
+        });
+        requestAppReview();
+      }
+    } catch {
+      // share cancelled or failed silently
+    } finally {
+      setIsExporting(false);
+    }
+  }, [isPremium, router]);
 
   // Get photos with location from store (includes persisted edits)
   const photos = usePhotoStore((s) => s.photos);
@@ -119,6 +161,11 @@ export default function MapScreen() {
   const browsedPhotoIds = useMemo(() => {
     if (mapMarkerMode === 'all_albums') {
       return null; // null means show all photos
+    }
+
+    // If no albums have been browsed yet, show everything (prevents blank map on first launch)
+    if (browsedAlbumIds.size === 0) {
+      return null;
     }
 
     // Collect photo IDs from all browsed albums
@@ -259,22 +306,27 @@ export default function MapScreen() {
 
   const photoCount = photosWithLocation.length;
 
-  // Get appropriate message based on mode and photo count
-  const getStatusMessage = () => {
-    if (photoCount > 0) {
-      return `${photoCount} photo${photoCount === 1 ? '' : 's'} on map`;
-    }
+  const emptyStateMessage = (() => {
+    if (photoCount > 0) return null;
     if (mapMarkerMode === 'all_albums') {
-      return 'Loading photos in background...';
+      return {
+        title: 'No geotagged photos',
+        body: 'None of your photos have location data. Try enabling location on your camera app.',
+      };
     }
-    return 'Browse albums to load photos';
-  };
+    return {
+      title: 'No geotagged photos in this album',
+      body: 'The selected album has no location data. Switch to "All Albums" in Map Settings, or browse a different album.',
+    };
+  })();
 
   return (
     <View className="flex-1">
       <MapView
+        ref={mapRef}
         style={{ flex: 1 }}
         initialRegion={initialRegion}
+        onRegionChangeComplete={(r) => { currentRegionRef.current = r; }}
         showsUserLocation
         showsMyLocationButton
         userInterfaceStyle={isDark ? 'dark' : 'light'}
@@ -288,31 +340,81 @@ export default function MapScreen() {
         ))}
       </MapView>
 
-      {/* Floating indicator showing photo count */}
-      <View
-        className={`absolute bottom-6 left-4 right-4 rounded-2xl p-4 ${
-          isDark ? 'bg-gray-800/90' : 'bg-white/90'
-        }`}
-        style={styles.floatingCard}
-      >
-        <View className="flex-row items-center">
-          <View
-            className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
-              isDark ? 'bg-blue-500/20' : 'bg-blue-100'
-            }`}
-          >
-            <MapPin size={20} color={isDark ? '#60A5FA' : '#2563EB'} />
-          </View>
-          <View className="flex-1">
-            <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
-              Photo Locations
-            </Text>
-            <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
-              {getStatusMessage()}
-            </Text>
+      {/* Floating indicator — photo count or empty-state guidance */}
+      {emptyStateMessage ? (
+        <View
+          className={`absolute bottom-6 left-4 right-4 rounded-2xl p-4 ${
+            isDark ? 'bg-gray-800/95' : 'bg-white/95'
+          }`}
+          style={styles.floatingCard}
+        >
+          <View className="flex-row items-start">
+            <View
+              className={`w-10 h-10 rounded-full items-center justify-center mr-3 mt-0.5 ${
+                isDark ? 'bg-amber-500/20' : 'bg-amber-100'
+              }`}
+            >
+              <MapPin size={20} color={isDark ? '#FCD34D' : '#D97706'} />
+            </View>
+            <View className="flex-1">
+              <Text className={`font-semibold mb-0.5 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                {emptyStateMessage.title}
+              </Text>
+              <Text className={`text-sm leading-5 ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                {emptyStateMessage.body}
+              </Text>
+              <Pressable
+                onPress={() => router.push('/settings')}
+                className="mt-3 self-start"
+              >
+                <Text className={`text-sm font-semibold ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+                  Open Map Settings →
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </View>
-      </View>
+      ) : (
+        <View
+          className={`absolute bottom-6 left-4 right-4 rounded-2xl p-4 ${
+            isDark ? 'bg-gray-800/90' : 'bg-white/90'
+          }`}
+          style={styles.floatingCard}
+        >
+          <View className="flex-row items-center">
+            <View
+              className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+                isDark ? 'bg-blue-500/20' : 'bg-blue-100'
+              }`}
+            >
+              <MapPin size={20} color={isDark ? '#60A5FA' : '#2563EB'} />
+            </View>
+            <View className="flex-1">
+              <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                Photo Locations
+              </Text>
+              <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                {photoCount} photo{photoCount === 1 ? '' : 's'} on map
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Export FAB */}
+      <Pressable
+        onPress={handleExport}
+        disabled={isExporting}
+        style={[
+          styles.exportFab,
+          {
+            backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+            opacity: isExporting ? 0.5 : 1,
+          },
+        ]}
+      >
+        <Share2 size={18} color={isDark ? '#60A5FA' : '#2563EB'} />
+      </Pressable>
 
       {/* Background loading indicator - rendered last so it appears on top */}
       <BackgroundLoadingIndicator />
@@ -323,23 +425,23 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   markerPressable: {
     alignItems: 'center',
+    backgroundColor: 'transparent',
   },
   markerHead: {
     width: THUMBNAIL_SIZE,
     height: THUMBNAIL_SIZE,
-    borderRadius: THUMBNAIL_SIZE / 2,
+    borderRadius: 6,
     borderWidth: 3,
     borderColor: '#FFFFFF',
+    backgroundColor: 'transparent',
+    shadowColor: 'transparent',
+    elevation: 0,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
   },
   markerImage: {
-    width: '100%',
-    height: '100%',
+    width: THUMBNAIL_SIZE - 6,
+    height: THUMBNAIL_SIZE - 6,
+    borderRadius: 0,
   },
   markerStem: {
     width: 6,
@@ -360,10 +462,25 @@ const styles = StyleSheet.create({
     marginTop: -1,
   },
   floatingCard: {
-    shadowColor: '#000',
+    shadowColor: 'transparent',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
+    elevation: 4,
+  },
+  exportFab: {
+    position: 'absolute',
+    top: 80,
+    right: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
     elevation: 4,
   },
 });

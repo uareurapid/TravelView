@@ -53,6 +53,7 @@ interface AlbumStore {
   loadedAlbumIds: Set<string>;
   isAlbumLoaded: (albumId: string) => boolean;
   markAlbumAsLoaded: (albumId: string) => void;
+  resetAlbumLoaded: (albumId: string) => void;
   isBackgroundLoadingComplete: boolean;
   setBackgroundLoadingComplete: (complete: boolean) => void;
 
@@ -254,6 +255,14 @@ const useAlbumStore = create<AlbumStore>()(
         set((state) => {
           const newLoadedIds = new Set(state.loadedAlbumIds);
           newLoadedIds.add(albumId);
+          return { loadedAlbumIds: newLoadedIds };
+        });
+      },
+
+      resetAlbumLoaded: (albumId: string) => {
+        set((state) => {
+          const newLoadedIds = new Set(state.loadedAlbumIds);
+          newLoadedIds.delete(albumId);
           return { loadedAlbumIds: newLoadedIds };
         });
       },

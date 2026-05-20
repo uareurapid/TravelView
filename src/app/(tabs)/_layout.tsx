@@ -2,14 +2,27 @@ import React from 'react';
 import { View, Pressable } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { useColorScheme } from '@/lib/useColorScheme';
-import { Images, MapPin, Settings, Plus } from 'lucide-react-native';
+import { Images, MapPin, Settings, Plus, BarChart3 } from 'lucide-react-native';
 import useAlbumStore from '@/lib/state/album-store';
+import usePurchasesStore from '@/lib/state/purchases-store';
+
+const FREE_ALBUM_LIMIT = 3;
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const router = useRouter();
   const setShowCreateModal = useAlbumStore((s) => s.setShowCreateModal);
+  const customAlbums = useAlbumStore((s) => s.customAlbums);
+  const isPremium = usePurchasesStore((s) => s.isPremium);
+
+  const handleAddAlbum = () => {
+    if (!isPremium && customAlbums.length >= FREE_ALBUM_LIMIT) {
+      router.push('/paywall');
+    } else {
+      setShowCreateModal(true);
+    }
+  };
 
   const SettingsButton = () => (
     <Pressable
@@ -24,7 +37,7 @@ export default function TabLayout() {
   const AddAlbumButton = () => (
     <View className="flex-row items-center">
       <Pressable
-        onPress={() => setShowCreateModal(true)}
+        onPress={handleAddAlbum}
         className="active:opacity-60 mr-3"
         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
       >
@@ -64,6 +77,14 @@ export default function TabLayout() {
         options={{
           title: 'Map',
           tabBarIcon: ({ color, size }) => <MapPin color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="stats"
+        options={{
+          title: 'Stats',
+          tabBarIcon: ({ color, size }) => <BarChart3 color={color} size={size} />,
+          headerShown: false,
         }}
       />
     </Tabs>

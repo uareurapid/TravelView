@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
+import { requestAppReview } from '@/lib/requestReview';
 import { View, Text, Pressable, ActivityIndicator, Dimensions, StyleSheet, Modal, TextInput } from 'react-native';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
@@ -924,6 +925,7 @@ export default function AlbumDetailScreen() {
         'success'
       );
       setShowLocationModal(false);
+      if (normalized) requestAppReview();
     } catch {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       showFeedback('Could not save album location. Please try again.', 'error');

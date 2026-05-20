@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { requestAppReview } from '@/lib/requestReview';
 import {
   View,
   Text,
@@ -265,6 +266,7 @@ export default function PhotoDetailScreen() {
     if (!currentPhotoId) return;
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const hadLocation = !!editLocation.trim();
     updatePhotoEdits(currentPhotoId, {
       title: editTitle.trim() || undefined,
       location: editLocation.trim() || undefined,
@@ -272,6 +274,7 @@ export default function PhotoDetailScreen() {
     setIsEditing(false);
     setShowSuggestions(false);
     Keyboard.dismiss();
+    if (hadLocation) requestAppReview();
   };
 
   // Navigate with buttons

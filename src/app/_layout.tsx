@@ -8,6 +8,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useEffect, useState, useCallback } from 'react';
 import { PermissionOnboarding, shouldShowOnboarding } from '@/components/PermissionOnboarding';
+// Initialise RevenueCat SDK as early as possible
+import '@/lib/purchases';
+import { checkPremiumEntitlement } from '@/lib/purchases';
+import usePurchasesStore from '@/lib/state/purchases-store';
 
 export const unstable_settings = {
   // Ensure that reloading on `/modal` keeps a back button present.
@@ -22,6 +26,12 @@ const queryClient = new QueryClient();
 function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null | undefined }) {
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const queryClient = useQueryClient();
+  const setPremium = usePurchasesStore((s) => s.setPremium);
+
+  // Check entitlement from RevenueCat on every launch; persisted value is shown immediately
+  useEffect(() => {
+    checkPremiumEntitlement().then((premium) => setPremium(premium));
+  }, [setPremium]);
 
   useEffect(() => {
     async function checkOnboarding() {
@@ -53,6 +63,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="photo/[id]" options={{ presentation: 'card', headerShown: false }} />
         <Stack.Screen name="settings" options={{ presentation: 'card' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="paywall" options={{ presentation: 'modal', headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );

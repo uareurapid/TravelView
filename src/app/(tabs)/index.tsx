@@ -8,6 +8,7 @@ import { useColorScheme } from '@/lib/useColorScheme';
 import { Images, Lock, X, FolderPlus, Calendar } from 'lucide-react-native';
 import useAlbumStore from '@/lib/state/album-store';
 import usePhotoStore from '@/lib/state/photo-store';
+import { requestAppReview } from '@/lib/requestReview';
 import { Album as AlbumModel } from '@/lib/models/album';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
@@ -68,7 +69,7 @@ async function fetchAlbums(): Promise<Album[]> {
   return albumsWithThumbnails.filter((album) => album.assetCount > 0);
 }
 
-function AlbumCard({ album, isDark, onPress }: { album: Album; isDark: boolean; onPress: () => void }) {
+function AlbumCard({ album, isDark, onPress, isSelected }: { album: Album; isDark: boolean; onPress: () => void; isSelected: boolean }) {
   return (
     <Pressable
       className="active:opacity-80"
@@ -77,7 +78,14 @@ function AlbumCard({ album, isDark, onPress }: { album: Album; isDark: boolean; 
     >
       <View
         className={`rounded-2xl overflow-hidden ${isDark ? 'bg-gray-800' : 'bg-gray-100'}`}
-        style={{ width: ITEM_WIDTH, height: ITEM_WIDTH }}
+        style={[
+          { width: ITEM_WIDTH, height: ITEM_WIDTH },
+          isSelected && {
+            borderWidth: 2.5,
+            borderColor: isDark ? '#60A5FA' : '#2563EB',
+            borderRadius: 16,
+          },
+        ]}
       >
         {album.thumbnail ? (
           <Image
@@ -344,6 +352,7 @@ export default function AlbumsScreen() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const backgroundLoadingStarted = useRef(false);
+  const [selectedAlbumId, setSelectedAlbumId] = useState<string | null>(null);
 
   const showCreateModal = useAlbumStore((s) => s.showCreateModal);
   const setShowCreateModal = useAlbumStore((s) => s.setShowCreateModal);
@@ -442,10 +451,12 @@ export default function AlbumsScreen() {
 
   const handleCreateAlbum = (name: string) => {
     addCustomAlbum(name);
+    requestAppReview();
   };
 
   const handleAlbumPress = useCallback((album: Album) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedAlbumId(album.id);
     router.push({
       pathname: '/album/[id]',
       params: {
@@ -463,9 +474,10 @@ export default function AlbumsScreen() {
         album={item}
         isDark={isDark}
         onPress={() => handleAlbumPress(item)}
+        isSelected={selectedAlbumId === item.id}
       />
     ),
-    [isDark, handleAlbumPress]
+    [isDark, handleAlbumPress, selectedAlbumId]
   );
 
   if (isLoading) {
