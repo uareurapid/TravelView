@@ -1,16 +1,39 @@
-import * as StoreReview from 'expo-store-review';
+type StoreReviewModule = {
+  isAvailableAsync: () => Promise<boolean>;
+  requestReview: () => Promise<void>;
+};
+
+function getStoreReviewModule(): StoreReviewModule | null {
+  try {
+    const mod = require('expo-store-review') as Partial<StoreReviewModule> | undefined;
+    if (!mod) return null;
+    if (typeof mod.isAvailableAsync !== 'function') return null;
+    if (typeof mod.requestReview !== 'function') return null;
+    return mod as StoreReviewModule;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Asks the OS to show a native app-review prompt.
- * iOS/Android throttle how often they actually display it — this is by design.
- * Safe to call after meaningful user actions; silently no-ops when unavailable.
+ * Asks the OS to show a native app-review prompt after a short delay.
+ * The delay ensures any React Native modals or animations have fully settled
+ * before the native review sheet appears (avoids dismissal conflicts).
+ * iOS/Android throttle how often the prompt actually shows — this is by design.
  */
-export async function requestAppReview(): Promise<void> {
-  try {
-    if (await StoreReview.isAvailableAsync() && await StoreReview.hasAction()) {
-      await StoreReview.requestReview();
-    }
-  } catch {
-    // Never let a review prompt crash the app
-  }
+export function requestAppReview(): void {
+  setTimeout(() => {
+    void (async () => {
+      const storeReview = getStoreReviewModule();
+      if (!storeReview) return;
+
+      try {
+        if (await storeReview.isAvailableAsync()) {
+          await storeReview.requestReview();
+        }
+      } catch {
+        // Never let a review prompt crash the app
+      }
+    })();
+  }, 900);
 }

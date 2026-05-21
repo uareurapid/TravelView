@@ -246,8 +246,6 @@ interface OptionsMenuProps {
 }
 
 function OptionsMenu({ visible, onClose, onAddFromGallery, onTakePhoto, onEditLocation, onDelete, isDark }: OptionsMenuProps) {
-  if (!visible) return null;
-
   return (
     <Modal
       visible={visible}
@@ -1254,7 +1252,7 @@ export default function AlbumDetailScreen() {
         onEditLocation={handleEditLocation}
         onDelete={() => {
           setShowOptionsMenu(false);
-          setShowDeleteConfirm(true);
+          setTimeout(() => setShowDeleteConfirm(true), 300);
         }}
         isDark={isDark}
       />

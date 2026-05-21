@@ -232,6 +232,7 @@ function CreateAlbumModal({ visible, onClose, onCreateAlbum, existingAlbums, isD
     onCreateAlbum(trimmedName);
     setAlbumName('');
     setError(null);
+    Keyboard.dismiss();
     onClose();
   };
 
