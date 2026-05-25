@@ -256,7 +256,7 @@ export function PermissionOnboarding({ onComplete }: Props) {
             end={{ x: 1, y: 0 }}
           >
             <Text style={styles.ctaText}>
-              {isRequesting ? 'Requesting Access…' : isLast ? 'Grant Photo Access' : 'Continue'}
+              {isRequesting ? 'Requesting Access…' : 'Continue'}
             </Text>
             {!isLast && !isRequesting && (
               <View style={{ marginLeft: 6 }}>
@@ -266,10 +266,12 @@ export function PermissionOnboarding({ onComplete }: Props) {
           </LinearGradient>
         </Pressable>
 
-        {/* Skip */}
-        <Pressable onPress={completeOnboarding} style={styles.skipButton}>
-          <Text style={styles.skipText}>Maybe Later</Text>
-        </Pressable>
+        {/* Skip — hidden on the permission slide */}
+        {!isLast && (
+          <Pressable onPress={completeOnboarding} style={styles.skipButton}>
+            <Text style={styles.skipText}>Maybe Later</Text>
+          </Pressable>
+        )}
 
         <Text style={styles.privacyNote}>You can change this anytime in Settings</Text>
       </View>
