@@ -48,7 +48,7 @@ class BackgroundPhotoLoader {
       await this.hydrateFromCache();
 
       // Step 3: Get all device albums
-      const { status } = await MediaLibrary.requestPermissionsAsync();
+      const { status } = await MediaLibrary.getPermissionsAsync();
       if (status !== 'granted') {
         console.log('[BackgroundLoader] Permission denied');
         return;

@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { requestAppReview } from '@/lib/requestReview';
 import { View, Text, Pressable, ActivityIndicator, Dimensions, StyleSheet, Modal, TextInput } from 'react-native';
+import ClothespinDecoration from '@/components/ClothespinDecoration';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -107,7 +108,10 @@ async function fetchAlbumPhotos(albumId: string, albumTitle: string, cursor?: st
   };
 }
 
-function PhotoCard({ photo, isDark, index, onPress }: { photo: Photo; isDark: boolean; index: number; onPress: () => void }) {
+// How many pts the clothespin occupies above the frame edge
+const CLOTHESPIN_PEEK = 30;
+
+function PhotoCard({ photo, isDark, index, onPress, showClothespin = false }: { photo: Photo; isDark: boolean; index: number; onPress: () => void; showClothespin?: boolean }) {
   // Vary heights for comic book effect
   const heightMultiplier = useMemo(() => {
     const multipliers = [1, 1.2, 0.9, 1.1, 1, 0.95, 1.15, 1.05];
@@ -121,13 +125,22 @@ function PhotoCard({ photo, isDark, index, onPress }: { photo: Photo; isDark: bo
       onPress={onPress}
       style={[
         styles.photoContainer,
-        { width: ITEM_WIDTH + FRAME_WIDTH * 2, marginBottom: GAP },
+        {
+          width: ITEM_WIDTH + FRAME_WIDTH * 2,
+          marginBottom: GAP,
+          paddingTop: showClothespin ? CLOTHESPIN_PEEK : 0,
+        },
       ]}
       className="active:opacity-80"
     >
+      {/* Clothespin decoration — floats above the frame edge */}
+      {showClothespin && (
+        <View pointerEvents="none" style={styles.clothespinAnchor}>
+          <ClothespinDecoration />
+        </View>
+      )}
+
       {/* Comic book style frame */}
-      { /* backgroundColor: isDark ? '#1F2937' : '#111827',
-       borderColor: isDark ? '#374151' : '#000000', */}
       <View
         style={[
           styles.frame,
@@ -1125,6 +1138,14 @@ export default function AlbumDetailScreen() {
     router.back();
   }, [id, title, deleteCustomAlbum, removeAlbumFromAllPhotos, router]);
 
+  // Always show clothespins on the first two photos (first row).
+  const clothespinIndices = useMemo(() => {
+    const indices: number[] = [];
+    if (photos.length >= 1) indices.push(0);
+    if (photos.length >= 2) indices.push(1);
+    return new Set<number>(indices);
+  }, [photos.length]);
+
   const renderItem = useCallback(
     ({ item, index }: { item: Photo; index: number }) => (
       <PhotoCard
@@ -1132,9 +1153,10 @@ export default function AlbumDetailScreen() {
         isDark={isDark}
         index={index}
         onPress={() => handlePhotoPress(item, index)}
+        showClothespin={clothespinIndices.has(index)}
       />
     ),
-    [isDark, handlePhotoPress]
+    [isDark, handlePhotoPress, clothespinIndices]
   );
 
   const renderFooter = useCallback(() => {
@@ -1338,6 +1360,14 @@ const styles = StyleSheet.create({
   },
   photoContainer: {
     alignItems: 'center',
+  },
+  clothespinAnchor: {
+    position: 'absolute',
+    top: 4,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 10,
   },
   frame: {
     padding: FRAME_WIDTH,

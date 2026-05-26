@@ -201,15 +201,15 @@ export function PermissionOnboarding({ onComplete }: Props) {
       entering={FadeIn.duration(400)}
       style={{ position: 'absolute', width, height, zIndex: 100 }}
     >
-      {/* Cross-fading background gradient per slide */}
-      <Animated.View key={currentIndex} entering={FadeIn.duration(500)} style={StyleSheet.absoluteFill}>
+      {/* Background gradient updates silently when slide changes */}
+      <View style={StyleSheet.absoluteFill}>
         <LinearGradient
           colors={currentSlide.gradientColors}
           style={StyleSheet.absoluteFill}
           start={{ x: 0.2, y: 0 }}
           end={{ x: 0.8, y: 1 }}
         />
-      </Animated.View>
+      </View>
 
       {/* Slides */}
       <FlatList

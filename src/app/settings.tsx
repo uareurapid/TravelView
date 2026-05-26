@@ -4,7 +4,7 @@ import { Stack, useRouter } from 'expo-router';
 import { useColorScheme } from '@/lib/useColorScheme';
 import { usePhotoPermissions } from '@/lib/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
-import { Images, ChevronRight, CheckCircle2, XCircle, ExternalLink, MapPin, Check, Crown, Sparkles, Share2, FlaskConical, Trash2, Image } from 'lucide-react-native';
+import { Images, ChevronRight, CheckCircle2, XCircle, ExternalLink, MapPin, Check, Crown, Sparkles, Share2, FlaskConical, Trash2, Image, LayoutGrid } from 'lucide-react-native';
 import useSettingsStore, { MapMarkerMode } from '@/lib/state/settings-store';
 import usePurchasesStore from '@/lib/state/purchases-store';
 import * as Haptics from 'expo-haptics';
@@ -260,6 +260,37 @@ export default function SettingsScreen() {
                   </Text>
                   <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
                     Share your travel map as an image
+                  </Text>
+                </View>
+                <ChevronRight size={20} color={isDark ? '#6B7280' : '#9CA3AF'} />
+              </View>
+            </Pressable>
+
+            {/* Divider */}
+            <View className={`h-px ml-16 ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`} />
+
+            {/* Picture Frame */}
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                router.push('/frame-builder');
+              }}
+              className="active:opacity-70"
+            >
+              <View className="flex-row items-center p-4">
+                <View
+                  className={`w-10 h-10 rounded-full items-center justify-center mr-3 ${
+                    isDark ? 'bg-amber-500/20' : 'bg-amber-100'
+                  }`}
+                >
+                  <LayoutGrid size={20} color={isDark ? '#FBBF24' : '#D97706'} />
+                </View>
+                <View className="flex-1">
+                  <Text className={`font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    Picture Frame
+                  </Text>
+                  <Text className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>
+                    Build a 6-photo collage for printing
                   </Text>
                 </View>
                 <ChevronRight size={20} color={isDark ? '#6B7280' : '#9CA3AF'} />

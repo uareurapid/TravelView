@@ -1,5 +1,5 @@
 import React, { useCallback, useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, Pressable, ActivityIndicator, Dimensions, Modal, TextInput, Keyboard, Linking } from 'react-native';
+import { View, Text, Pressable, ActivityIndicator, Dimensions, Modal, TextInput, Keyboard, Linking, AppState } from 'react-native';
 import { Image } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -30,7 +30,7 @@ interface Album {
 }
 
 async function fetchAlbums(): Promise<Album[]> {
-  const { status } = await MediaLibrary.requestPermissionsAsync();
+  const { status } = await MediaLibrary.getPermissionsAsync();
 
   if (status !== 'granted') {
     throw new Error('PERMISSION_DENIED');
@@ -370,11 +370,22 @@ export default function AlbumsScreen() {
     getOrCreateYearlyAlbum(currentYear);
   }, [getOrCreateYearlyAlbum]);
 
-  const { data: deviceAlbums, isLoading, error } = useQuery({
+  const { data: deviceAlbums, isLoading, error, refetch } = useQuery({
     queryKey: ['albums'],
     queryFn: fetchAlbums,
     staleTime: 1000 * 60 * 5,
   });
+
+  // When permission is denied, refetch whenever the app returns to the foreground
+  // (user may have gone to Settings to grant access)
+  const isPermissionDenied = error?.message === 'PERMISSION_DENIED';
+  useEffect(() => {
+    if (!isPermissionDenied) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') refetch();
+    });
+    return () => sub.remove();
+  }, [isPermissionDenied, refetch]);
 
   // Start background photo loading once device albums are loaded
   useEffect(() => {

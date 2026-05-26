@@ -11,7 +11,7 @@
  */
 
 import { Platform } from 'react-native';
-import { FORCE_PREMIUM } from "./cn";
+//import { FORCE_PREMIUM } from "./cn";
 import Purchases, {
   type PurchasesOfferings,
   type CustomerInfo,
@@ -84,10 +84,10 @@ export const restorePurchases = (): Promise<PurchasesResult<CustomerInfo>> =>
 export const checkPremiumEntitlement = async (): Promise<boolean> => {
 
 // DEV: override — bypasses RevenueCat for simulator testing
-  if (FORCE_PREMIUM) {
-    console.log(`[RevenueCat] FORCE_PREMIUM is ON — returning premium=true for "premium"`);
-    return true;
-  }
+  // if (FORCE_PREMIUM) {
+  //   console.log(`[RevenueCat] FORCE_PREMIUM is ON — returning premium=true for "premium"`);
+  //   return true;
+  // }
   const result = await getCustomerInfo();
   if (!result.ok) return false;
   return !!result.data.entitlements.active['premium'];

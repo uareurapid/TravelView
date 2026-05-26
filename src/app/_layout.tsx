@@ -64,6 +64,7 @@ function RootLayoutNav({ colorScheme }: { colorScheme: 'light' | 'dark' | null |
         <Stack.Screen name="settings" options={{ presentation: 'card' }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
         <Stack.Screen name="paywall" options={{ presentation: 'modal', headerShown: false }} />
+        <Stack.Screen name="frame-builder" options={{ presentation: 'modal', headerShown: false }} />
       </Stack>
     </ThemeProvider>
   );
